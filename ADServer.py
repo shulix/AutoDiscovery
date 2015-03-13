@@ -11,60 +11,27 @@ open('confFile.txt', 'a').close()
 global leases
 leases=[]
 
-def release(Node): #release a lease after time limit has expired
-    def DeleteFromList():
-        locator = buildLocator(leases)
-        loc=(locator[Node])
-        CheckAlive(loc)
-        if Node == loc:
-            print 'deleting ',loc
-    #def DeleteFromFile():
-    #with open("confFile.txt", "rU") as f:
-     #   reader = csv.reader(f)
-     #   for line in reader:
-      #      try:
-       #         if addr in zip(*line[0]):
-        #            print addr,'is',line[0]
-         #       else:
-          #          print 'not in line'
-           # except IndexError:
-            #    print''
-            #else:
-            #    if addr in zip(*line[0]):
-            #        print addr,'is',line[0]
-            #    else:
-            #        print 'not in line'
-
-    #f.close()
-
-    #with open("confFile.txt", "wb") as f:
-        #writer = csv.writer(f)
-        #writer.writerows(line)
-    #f.close()
-
 
 def configure(addr):
     print 'sending data to ', addr
     print '----------------------------------------------------------------------------'
     s.sendto("Go ahead and configure yourself", addr)
 
-def CheckAlive():
+def RemoveNode():
     print 'Cleaning Server list....'
     print '----------------------------------------------------------------------------'
-    for Node in leases:
-        locator = buildLocator(leases)
-        location=(locator[Node[0]])
-        for loc in location:
-            print 'checking',Node[0]
-            LastHBGap=int(time.time()) - int(leases[loc[0]][2])
-            if LastHBGap>60:
-                print 'Last Heart beat from',Node[0],'was',LastHBGap,'seconds ago'
-                print 'deleting',Node[0]
-                del leases[loc[0]]
+
+    for l in leases[:]:
+        if int(l[2]) < int(time.time()-60):
+            m, s = divmod(int(time.time()) - int(l[2]), 60)
+            h, m = divmod(m, 60)
+            print 'Last Heart beat from',l[0],'was',"%d Hours %02d Minutes and %02d Seconds" % (h, m, s),'ago'
+            print 'Removing',l[0],'from',l[1] ,'pool'
+            leases.remove(l)
 
 
 
-def humenTime(value):
+def ToHumenTime(value):
     v = datetime.datetime.fromtimestamp(value)
     return (v.strftime('%Y-%m-%d %H:%M:%S'))
 
@@ -91,7 +58,7 @@ def LoadConf():
     for lease in Savedleases:
         try:
             leases.append([lease[0],lease[1],lease[2]])
-            print 'Node',lease[0],'loaded as',lease[1]
+            print 'Node',lease[0],'added to',lease[1],'pool'
         except IndexError:
             pass
 
@@ -123,14 +90,14 @@ while 1:
             print 'leases',leases
             leases.append([address[0],message,int(t)])
             print '----------------------------------------------------------------------------'
-            print 'Adding new',message,'with IP',address[0],'and setting timer to:',humenTime(t)
+            print 'Adding new',message,'with IP',address[0],'and setting timer to:',ToHumenTime(t)
             print '----------------------------------------------------------------------------'
             configure(address)
             AddToConf([[address[0],message,int(t)]])
         if address[0] in zip(*leases)[0]:
             t=time.time()
             print '----------------------------------------------------------------------------'
-            print 'node ',address[0],' already in list reseting timer to: ',humenTime(t)
+            print 'node ',address[0],' already in list reseting timer to: ',ToHumenTime(t)
             print '----------------------------------------------------------------------------'
             locator = buildLocator(leases)
             loc=(locator[address[0]])
@@ -140,13 +107,12 @@ while 1:
             t=time.time()
             print '----------------------------------------------------------------------------'
             leases.append([address[0],message,int(t)])
-            print 'adding new',message,'with IP',address[0],'and setting timer to:',humenTime(t)
+            print 'adding new',message,'with IP',address[0],'and setting timer to:',ToHumenTime(t)
             print '----------------------------------------------------------------------------'
             configure(address)
             AddToConf([[address[0],message,int(t)]])
-        print leases
-        print''
-        CheckAlive()
+
+        RemoveNode()
         print leases
         print "Listening for broadcasts..."
         print''
