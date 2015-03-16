@@ -11,6 +11,11 @@ open('confFile.txt', 'a').close()
 global leases
 leases=[]
 
+def printNlog(logging):
+    print logging
+    f = open('ADServer.log','w')
+    f.write(logging)
+    f.close()
 
 def configure(addr):
     print 'sending data to ', addr
@@ -28,8 +33,6 @@ def RemoveNode():
             print 'Last Heart beat from',l[0],'was',"%d Hours %02d Minutes and %02d Seconds" % (h, m, s),'ago'
             print 'Removing',l[0],'from',l[1] ,'pool'
             leases.remove(l)
-
-
 
 def ToHumenTime(value):
     v = datetime.datetime.fromtimestamp(value)
@@ -111,9 +114,9 @@ while 1:
             print '----------------------------------------------------------------------------'
             configure(address)
             AddToConf([[address[0],message,int(t)]])
-
         RemoveNode()
         print leases
+        WriteConf(leases)
         print "Listening for broadcasts..."
         print''
     except (KeyboardInterrupt, SystemExit):
