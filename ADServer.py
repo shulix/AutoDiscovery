@@ -1,5 +1,12 @@
 __author__ = 'shulih'
-import socket, traceback, time, struct, datetime,csv
+import socket
+import traceback
+import time
+import struct
+import datetime
+import csv
+import re
+import errno
 from collections import Sequence,defaultdict
 
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -8,30 +15,39 @@ s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 s.bind(('', 5000))
 
 open('confFile.txt', 'a').close()
+open('ADServer.log', 'a').close()
 global leases
 leases=[]
 
 def printNlog(logging):
-    print logging
-    f = open('ADServer.log','w')
+    pdate=ToHumenTime(time.time())+' : '
+    print pdate+logging
+    f = open('ADServer.log','a')
+    f.write(pdate)
     f.write(logging)
-    f.close()
+    f.write('\n')
+    #f.close()
+
 
 def configure(addr):
-    print 'sending data to ', addr
-    print '----------------------------------------------------------------------------'
-    s.sendto("Go ahead and configure yourself", addr)
+    print 'sending configuration to: ', addr
+    s.sendto("Go ahead and configure yourself",addr)
+
+def sendMyIPToNode(node,emsip):
+    out= 'Send EMS IP to:' + node
+    printNlog(out)
+    emsRegMsg='emsIP,'.join(emsip)
+    s.sendto(emsRegMsg,(node,5000))
 
 def RemoveNode():
-    print 'Cleaning Server list....'
-    print '----------------------------------------------------------------------------'
-
+    printNlog('Cleaning Server list....')
     for l in leases[:]:
         if int(l[2]) < int(time.time()-60):
             m, s = divmod(int(time.time()) - int(l[2]), 60)
             h, m = divmod(m, 60)
             print 'Last Heart beat from',l[0],'was',"%d Hours %02d Minutes and %02d Seconds" % (h, m, s),'ago'
-            print 'Removing',l[0],'from',l[1] ,'pool'
+            out='Removing ' + l[0] + ' from ' + l[1]  + ' pool'
+            printNlog(out)
             leases.remove(l)
 
 def ToHumenTime(value):
@@ -48,13 +64,14 @@ def AddToConf(nodeList):
         writer = csv.writer(f)
         writer.writerows('')
         writer.writerows(nodeList)
+
 def ReadConf():
     with open('confFile.txt', 'rU') as f:
         reader = csv.reader(f)
     print reader
 
 def LoadConf():
-    print 'Loading previous configuration...'
+    printNlog('Loading previous configuration...')
     with open('confFile.txt', 'rU') as f:
         reader = csv.reader(f)
         Savedleases = list(reader)
@@ -64,8 +81,6 @@ def LoadConf():
             print 'Node',lease[0],'added to',lease[1],'pool'
         except IndexError:
             pass
-
-        #WriteConf(lease)
 
 def buildLocator(tree):
     locator = defaultdict(list)
@@ -78,48 +93,59 @@ def buildLocator(tree):
     fillLocator(tree,locator,())
     return locator
 
+def registerNode(address,message):
+    t=time.time()
+    if not leases:
+        leases.append([address[0],message,int(t)])
+        out = 'Adding new ' + message + ' with IP ' + address[0] + ' and setting heart beat timer to:' + ToHumenTime(t)
+        printNlog(out)
+        configure(address)
+        AddToConf([[address[0],message,int(t)]])
+    if address[0] in zip(*leases)[0]:
+         out = 'Node with IP ' + address[0] + ' is already in the pool , resetting its heart beat timer to: ' + ToHumenTime(t)
+         printNlog(out)
+         locator = buildLocator(leases)
+         loc=(locator[address[0]])
+         leases[loc[0][0]][2]=int(t)
+    elif address[0] not in zip(*leases)[0]:
+        out = 'Adding new ' + message + ' with IP ' + address[0] + ' and setting heart beat timer to:' + ToHumenTime(t)
+        printNlog(out)
+        configure(address)
+        AddToConf([[address[0],message,int(t)]])
+
+def IsAlive(address,message):
+    result = re.match('Alive', message)
+    if result:
+        print 'Got Alive from ',address[0]
+
 
 LoadConf()
+printNlog("Listening for broadcasts...")
 
-print "Listening for broadcasts..."
-#leases.append(['1.1.1.1','HPI',int(time.time())])
 while 1:
     try:
+       # Myip= ([ip for ip in socket.gethostbyname_ex(socket.gethostname())[2] if not ip.startswith("127.")][:1])
         message, address = s.recvfrom(8192)
-        print '----------------------------------------------------------------------------'
-        print "Got message from %s: %s" % (address, message)
-        if not leases:
-            t=time.time()
-            print 'leases',leases
-            leases.append([address[0],message,int(t)])
-            print '----------------------------------------------------------------------------'
-            print 'Adding new',message,'with IP',address[0],'and setting timer to:',ToHumenTime(t)
-            print '----------------------------------------------------------------------------'
-            configure(address)
-            AddToConf([[address[0],message,int(t)]])
-        if address[0] in zip(*leases)[0]:
-            t=time.time()
-            print '----------------------------------------------------------------------------'
-            print 'node ',address[0],' already in list reseting timer to: ',ToHumenTime(t)
-            print '----------------------------------------------------------------------------'
-            locator = buildLocator(leases)
-            loc=(locator[address[0]])
-            leases[loc[0][0]][2]=int(t)
-            #sendalive(address)
-        elif address[0] not in zip(*leases)[0]:
-            t=time.time()
-            print '----------------------------------------------------------------------------'
-            leases.append([address[0],message,int(t)])
-            print 'adding new',message,'with IP',address[0],'and setting timer to:',ToHumenTime(t)
-            print '----------------------------------------------------------------------------'
-            configure(address)
-            AddToConf([[address[0],message,int(t)]])
+        result = re.match('Alive', message)
+        if result:
+            print 'got alive from', address
+            registerNode(address,message)
+            s.sendto('Alive',address)
+        else:
+            out = 'Got message from ' + address[0] + ' requesting role ' + message
+            printNlog(out)
+            registerNode(address,message)
+            s.sendto('Alive',address)
         RemoveNode()
-        print leases
         WriteConf(leases)
+        time.sleep(5)
         print "Listening for broadcasts..."
         print''
+        s.sendto('Alive',address)
+    except socket.error as error:
+        if error.errno == errno.WSAECONNRESET:
+            pass
     except (KeyboardInterrupt, SystemExit):
         raise
     except:
-        traceback.print_exc()
+     traceback.print_exc()
