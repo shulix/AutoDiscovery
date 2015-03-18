@@ -45,7 +45,9 @@ def RemoveNode():
         if int(l[2]) < int(time.time()-60):
             m, s = divmod(int(time.time()) - int(l[2]), 60)
             h, m = divmod(m, 60)
-            print 'Last Heart beat from',l[0],'was',"%d Hours %02d Minutes and %02d Seconds" % (h, m, s),'ago'
+            d, h = divmod(h,24)
+            out = 'Last Heart beat from ' + l[0] +' was ' + str(d) + ' days ' + str(h) + ' hours ' + str(m) + ' minutes and ' + str(s) + ' seconds ago'
+            printNlog(out)
             out='Removing ' + l[0] + ' from ' + l[1]  + ' pool'
             printNlog(out)
             leases.remove(l)
@@ -78,7 +80,8 @@ def LoadConf():
     for lease in Savedleases:
         try:
             leases.append([lease[0],lease[1],lease[2]])
-            print 'Node',lease[0],'added to',lease[1],'pool'
+            out = 'Node ' + lease[0] + ' added to ' + lease[1] +' pool'
+            printNlog(out)
         except IndexError:
             pass
 
@@ -116,7 +119,8 @@ def registerNode(address,message):
 def IsAlive(address,message):
     result = re.match('Alive', message)
     if result:
-        print 'Got Alive from ',address[0]
+        out = 'Got Alive from: ' + address[0]
+        printNlog(out)
 
 
 LoadConf()
@@ -128,7 +132,8 @@ while 1:
         message, address = s.recvfrom(8192)
         result = re.match('Alive', message)
         if result:
-            print 'got alive from', address
+            out = 'Got Alive from: ' +  address[0]
+            printNlog(out)
             registerNode(address,message)
             s.sendto('Alive',address)
         else:
