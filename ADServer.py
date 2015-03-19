@@ -8,8 +8,19 @@ import datetime
 import csv
 import re
 import errno
+import logging
+from  logging.handlers import RotatingFileHandler
 from collections import Sequence,defaultdict
-
+LOGFILE='ADServer.log'
+logging.basicConfig(level=logging.DEBUG)
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
+handler = logging.FileHandler(LOGFILE)
+handler.setLevel(logging.INFO)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+handler.setFormatter(formatter)
+handler = RotatingFileHandler(LOGFILE, maxBytes=20*1024,backupCount=5)
+logger.addHandler(handler)
 s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 s.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
@@ -20,37 +31,27 @@ open('ADServer.log', 'a').close()
 global leases
 leases=[]
 
-def printNlog(logging):
-    pdate=ToHumenTime(time.time())+' : '
-    print pdate+logging
-    f = open('ADServer.log','a')
-    f.write(pdate)
-    f.write(logging)
-    f.write('\n')
-    #f.close()
-
-
 def configure(addr):
     print 'sending configuration to: ', addr
     s.sendto("Go ahead and configure yourself",addr)
 
 def sendMyIPToNode(node,emsip):
     out= 'Send EMS IP to:' + node
-    printNlog(out)
+    logger.info(out)
     emsRegMsg='emsIP,'.join(emsip)
     s.sendto(emsRegMsg,(node,5000))
 
 def RemoveNode():
-    printNlog('Cleaning Server list....')
+    logger.info('Cleaning Server list....')
     for l in leases[:]:
         if int(l[2]) < int(time.time()-60):
             m, s = divmod(int(time.time()) - int(l[2]), 60)
             h, m = divmod(m, 60)
             d, h = divmod(h,24)
             out = 'Last Heart beat from ' + l[0] +' was ' + str(d) + ' days ' + str(h) + ' hours ' + str(m) + ' minutes and ' + str(s) + ' seconds ago'
-            printNlog(out)
+            logger.info(out)
             out='Removing ' + l[0] + ' from ' + l[1]  + ' pool'
-            printNlog(out)
+            logger.info(out)
             leases.remove(l)
 
 def ToHumenTime(value):
@@ -74,7 +75,7 @@ def ReadConf():
     print reader
 
 def LoadConf():
-    printNlog('Loading previous configuration...')
+    logger.info('Loading previous configuration...')
     with open('confFile.txt', 'rU') as f:
         reader = csv.reader(f)
         Savedleases = list(reader)
@@ -82,7 +83,7 @@ def LoadConf():
         try:
             leases.append([lease[0],lease[1],lease[2]])
             out = 'Node ' + lease[0] + ' added to ' + lease[1] +' pool'
-            printNlog(out)
+            logger.info(out)
         except IndexError:
             pass
 
@@ -102,18 +103,18 @@ def registerNode(address,message):
     if not leases:
         leases.append([address[0],message,int(t)])
         out = 'Adding new ' + message + ' with IP ' + address[0] + ' and setting heart beat timer to:' + ToHumenTime(t)
-        printNlog(out)
+        logger.info(out)
         configure(address)
         AddToConf([[address[0],message,int(t)]])
     if address[0] in zip(*leases)[0]:
          out = 'Node with IP ' + address[0] + ' is already in the pool , resetting its heart beat timer to: ' + ToHumenTime(t)
-         printNlog(out)
+         logger.info(out)
          locator = buildLocator(leases)
          loc=(locator[address[0]])
          leases[loc[0][0]][2]=int(t)
     elif address[0] not in zip(*leases)[0]:
         out = 'Adding new ' + message + ' with IP ' + address[0] + ' and setting heart beat timer to:' + ToHumenTime(t)
-        printNlog(out)
+        logger.info(out)
         configure(address)
         AddToConf([[address[0],message,int(t)]])
 
@@ -121,11 +122,11 @@ def IsAlive(address,message):
     result = re.match('Alive', message)
     if result:
         out = 'Got Alive from: ' + address[0]
-        printNlog(out)
+        logger.info(out)
 
 
 LoadConf()
-printNlog("Listening for broadcasts...")
+logger.info("Listening for broadcasts...")
 
 while 1:
     try:
@@ -134,23 +135,24 @@ while 1:
         result = re.match('Alive', message)
         if result:
             out = 'Got Alive from: ' +  address[0]
-            printNlog(out)
+            logger.info(out)
             registerNode(address,message)
-            s.sendto('Alive',address)
+            s.sendto('Alive from EMS',address)
         else:
             out = 'Got message from ' + address[0] + ' requesting role ' + message
-            printNlog(out)
+            logger.info(out)
             registerNode(address,message)
-            s.sendto('Alive',address)
+            s.sendto('Alive from EMS',address)
         RemoveNode()
         WriteConf(leases)
         time.sleep(5)
-        print "Listening for broadcasts..."
+        logger.info('Listening for broadcasts...')
         print''
-        s.sendto('Alive',address)
+        s.sendto('Alive From EMS',address)
     except socket.error as error:
         if error.errno == errno.WSAECONNRESET:
-            pass
+            out='Lost connection to: ' + address[0]
+            logger.debug(out)
     except (KeyboardInterrupt, SystemExit):
         raise
     except:
